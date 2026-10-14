@@ -1,0 +1,713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Campus Weather & Student Alert System</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        brand: {
+                            50: '#f0f9ff',
+                            100: '#e0f2fe',
+                            500: '#0284c7',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            900: '#0c4a6e',
+                        },
+                        jrcc: '#15803d'
+                    }
+                }
+            }
+        }
+    </script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        #map { height: 260px; width: 100%; border-radius: 1rem; z-index: 10; }
+        .leaflet-container { font-family: inherit; }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans min-h-screen flex justify-center items-center p-0 md:p-4">
+    <div class="w-full max-w-md bg-slate-800 border border-slate-700 md:rounded-3xl shadow-2xl overflow-hidden min-h-screen md:min-h-[850px] flex flex-col relative">
+
+        <div id="authScreen" class="flex-1 flex flex-col justify-center px-6 py-8 z-50 bg-slate-900">
+            <div class="text-center mb-8">
+                <div class="w-24 h-24 bg-emerald-600/20 border-2 border-emerald-500 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-900/30">
+                    <i class="fa-solid fa-graduation-cap text-4xl text-emerald-400"></i>
+                </div>
+                <h1 class="text-2xl font-bold text-white tracking-wide">Campus Weather</h1>
+                <p class="text-slate-400 text-xs mt-1">Jesus Reigns Christian College Safety Portal</p>
+            </div>
+
+            <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl">
+                <div class="flex border-b border-slate-700 mb-6">
+                    <button id="tabSignInBtn" onclick="toggleAuthMode('signin')" class="flex-1 pb-3 text-center text-sm font-semibold border-b-2 border-emerald-500 text-emerald-400">Sign In</button>
+                    <button id="tabSignUpBtn" onclick="toggleAuthMode('signup')" class="flex-1 pb-3 text-center text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200">Sign Up</button>
+                </div>
+
+                <form id="authForm" onsubmit="handleAuthSubmit(event)" class="space-y-4">
+                    <div id="nameField" class="hidden">
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Full Name</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-user absolute left-3 top-3 text-slate-400 text-sm"></i>
+                            <input type="text" id="authName" placeholder="Enter full name" class="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-emerald-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Username / Student ID</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-id-card absolute left-3 top-3 text-slate-400 text-sm"></i>
+                            <input type="text" id="authUsername" required placeholder="Enter username or ID" class="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-emerald-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-400 mb-1">Password</label>
+                        <div class="relative">
+                            <i class="fa-solid fa-lock absolute left-3 top-3 text-slate-400 text-sm"></i>
+                            <input type="password" id="authPassword" required placeholder="••••••••" class="w-full bg-slate-900 border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm text-white focus:outline-none focus:border-emerald-500">
+                        </div>
+                    </div>
+
+                    <button type="submit" id="authSubmitBtn" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl shadow-lg transition mt-2">
+                        Sign In
+                    </button>
+                </form>
+            </div>
+            <p class="text-center text-xs text-slate-500 mt-6">Authentication required to view weather alerts</p>
+        </div>
+
+        <div id="mainAppWrapper" class="flex-1 flex-col h-full hidden">
+            
+            <div class="bg-slate-900 border-b border-slate-700 p-4 space-y-3 sticky top-0 z-40">
+                <div class="flex justify-between items-center text-xs text-slate-400">
+                    <div class="flex items-center space-x-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span id="realtimeClock" class="font-mono text-emerald-400 font-bold">--:--:-- PM</span>
+                        <span class="text-slate-600">|</span>
+                        <span>Malate, Manila</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="fetchLiveWeather()" title="Sync Live Weather" class="hover:text-emerald-400 transition">
+                            <i class="fa-solid fa-arrows-rotate text-xs"></i>
+                        </button>
+                        <span id="offlineBadge" class="hidden bg-red-900/80 text-red-300 px-2 py-0.5 rounded text-[10px] font-bold">OFFLINE</span>
+                        <button onclick="handleLogOut()" class="text-xs bg-slate-800 hover:bg-red-900/50 hover:text-red-300 border border-slate-700 px-2.5 py-1 rounded-lg transition text-slate-300">
+                            <i class="fa-solid fa-right-from-bracket mr-1"></i>Logout
+                        </button>
+                    </div>
+                </div>
+
+                <div id="typhoonBanner" class="bg-amber-900/60 border border-amber-500/50 rounded-xl p-2.5 flex items-start space-x-3 text-xs">
+                    <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg mt-0.5"></i>
+                    <div class="flex-1">
+                        <p class="font-bold text-amber-200">PAGASA Signal No. 1 Active</p>
+                        <p class="text-amber-300/80 text-[11px]">Class Suspension Alert: Face-to-face classes suspended from 1:00 PM.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex-1 overflow-y-auto no-scrollbar p-4 space-y-5 pb-28">
+
+                <div id="panelHome" class="space-y-4">
+                    <div class="bg-gradient-to-br from-blue-900/60 to-slate-800 border border-blue-500/30 rounded-2xl p-4 shadow-lg relative overflow-hidden">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p id="welcomeUser" class="text-xs text-slate-300 font-medium">Hi, @student</p>
+                                <h2 id="liveTemp" class="text-4xl font-extrabold text-white my-1">--°C</h2>
+                                <p id="weatherDesc" class="text-sm text-blue-300 font-medium">Fetching Live Weather...</p>
+                            </div>
+                            <div class="text-right">
+                                <i id="weatherIcon" class="fa-solid fa-cloud-showers-heavy text-4xl text-blue-400 mb-1"></i>
+                                <p id="lastUpdated" class="text-[10px] text-slate-400">Updated: Just now</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-3 gap-2 mt-4 pt-3 border-t border-slate-700/60 text-center text-xs">
+                            <div class="bg-slate-900/50 rounded-lg p-2">
+                                <p class="text-slate-400 text-[10px]">Rain Chance</p>
+                                <p id="rainChance" class="font-bold text-blue-300">84%</p>
+                            </div>
+                            <div class="bg-slate-900/50 rounded-lg p-2">
+                                <p class="text-slate-400 text-[10px]">Humidity</p>
+                                <p id="humidityVal" class="font-bold text-slate-200">--%</p>
+                            </div>
+                            <div class="bg-slate-900/50 rounded-lg p-2">
+                                <p class="text-slate-400 text-[10px]">Outdoor</p>
+                                <p class="font-bold text-emerald-400">Fair</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-purple-950/50 border border-purple-500/40 rounded-xl p-3 flex items-center justify-between text-xs">
+                        <div class="flex items-center space-x-3">
+                            <i class="fa-solid fa-bolt text-purple-400 text-xl animate-bounce"></i>
+                            <div>
+                                <p class="font-bold text-purple-200">Thunderstorm Warning</p>
+                                <p class="text-purple-300/80">Lightning hazard reported near quadrangle.</p>
+                            </div>
+                        </div>
+                        <button onclick="sendPushNotification('Lightning Alert', 'Lightning detected near campus quadrangle! Take shelter immediately.')" class="bg-purple-800/60 text-purple-200 text-[10px] px-2 py-1 rounded border border-purple-500/50 hover:bg-purple-700">
+                            Test Alert
+                        </button>
+                    </div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-3">Hourly Weather Forecast</h3>
+                        <div id="hourlyContainer" class="flex justify-between items-center text-center text-xs"></div>
+                    </div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-2">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">Weekly Overview</h3>
+                        <div id="weeklyContainer" class="space-y-2"></div>
+                    </div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider mb-2"><i class="fa-solid fa-shield-halved text-emerald-400 mr-1"></i> Covered Safe Waiting Areas</h3>
+                        <ul class="text-xs text-slate-300 space-y-1.5 list-disc list-inside">
+                            <li>Main Gym Covered Court</li>
+                            <li>Student Activity Center (Building B, Floor 2)</li>
+                            <li>Library Reading Hub (Air-conditioned)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div id="panelRoute" class="hidden space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-sm font-bold text-white">Campus Flood & Route Map</h3>
+                        <span class="text-[10px] bg-slate-700 px-2 py-0.5 rounded text-slate-300">Live Traffic & Floods</span>
+                    </div>
+
+                    <div id="map"></div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+                        <h4 class="text-xs font-bold text-slate-300 uppercase tracking-wider">Estimated Travel Times</h4>
+                        <div class="space-y-2 text-xs">
+                            <div class="flex justify-between items-center bg-slate-900/60 p-2.5 rounded-xl border border-red-500/30">
+                                <div>
+                                    <p class="font-bold text-red-300">Main Gate Route (Flooded)</p>
+                                    <p class="text-[10px] text-slate-400">Water level: 0.5 - 1.0 ft</p>
+                                </div>
+                                <span class="bg-red-950 text-red-400 font-bold px-2 py-1 rounded">20 mins</span>
+                            </div>
+                            <div class="flex justify-between items-center bg-slate-900/60 p-2.5 rounded-xl border border-emerald-500/30">
+                                <div>
+                                    <p class="font-bold text-emerald-300">Alternative Rear Route (Clear)</p>
+                                    <p class="text-[10px] text-slate-400">Recommended safe route</p>
+                                </div>
+                                <span class="bg-emerald-950 text-emerald-400 font-bold px-2 py-1 rounded">12 mins</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="panelReports" class="hidden space-y-4">
+                    <div class="flex justify-between items-center">
+                        <div>
+                            <h3 class="text-sm font-bold text-white">Campus Condition Reports</h3>
+                            <p class="text-[10px] text-emerald-400 font-mono"><i class="fa-solid fa-bullhorn mr-1"></i>Real-Time Student Voting</p>
+                        </div>
+                        <button onclick="openReportModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-1.5 rounded-xl font-semibold shadow">
+                            <i class="fa-solid fa-plus mr-1"></i>Report Hazard
+                        </button>
+                    </div>
+
+                    <div id="reportsList" class="space-y-3"></div>
+                </div>
+
+                <div id="panelSchedule" class="hidden space-y-4">
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-calendar-day text-emerald-400 mr-1"></i> Today's Class Schedule</h3>
+                            <button onclick="openAddScheduleModal()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] px-2.5 py-1 rounded-lg font-semibold shadow">
+                                <i class="fa-solid fa-plus mr-1"></i>Add Class
+                            </button>
+                        </div>
+                        <div id="scheduleList" class="space-y-2 text-xs"></div>
+                    </div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-bell text-amber-400 mr-1"></i> Personalized Alerts</h3>
+                        <div class="space-y-2 text-xs">
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-700 cursor-pointer">
+                                <input type="checkbox" checked class="rounded accent-emerald-500">
+                                <span>Remind me to bring umbrella before leaving</span>
+                            </label>
+                            <label class="flex items-center space-x-2 bg-slate-900/60 p-2.5 rounded-xl border border-slate-700 cursor-pointer">
+                                <input type="checkbox" checked class="rounded accent-emerald-500">
+                                <span>Alert me 30 mins before dismissal weather update</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="panelEmergency" class="hidden space-y-4">
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-phone text-emerald-400 mr-1"></i> Family Emergency Numbers</h3>
+                        <p class="text-xs text-slate-400">Enter phone numbers of parents/relatives to receive automatic emergency alerts:</p>
+                        
+                        <div class="space-y-2">
+                            <div>
+                                <label class="block text-[11px] text-slate-400">Parent / Guardian Phone Number</label>
+                                <input type="tel" id="parentPhone" placeholder="+639123456789" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-[11px] text-slate-400">Relative / Secondary Contact</label>
+                                <input type="tel" id="relativePhone" placeholder="+639987654321" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:border-emerald-500">
+                            </div>
+                            <button onclick="saveEmergencyContacts()" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2 rounded-xl text-xs transition">
+                                <i class="fa-solid fa-floppy-disk mr-1"></i> Save Contact Numbers
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-800 border border-slate-700 rounded-2xl p-4 space-y-3">
+                        <h3 class="text-xs font-bold text-slate-300 uppercase tracking-wider"><i class="fa-solid fa-share-nodes text-blue-400 mr-1"></i> Quick Parent Status Update</h3>
+                        <p class="text-xs text-slate-400">Dispatch a pre-formatted safety message directly to saved emergency numbers:</p>
+                        <button onclick="shareStatusToParent()" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-semibold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2">
+                            <i class="fa-solid fa-comment-sms"></i>
+                            <span>Send SMS: "I'm safe, leaving school at 3:30 PM"</span>
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="bg-slate-900/90 backdrop-blur border-t border-slate-800 p-3 flex items-center justify-between space-x-2 fixed md:absolute bottom-16 left-0 right-0 z-30">
+                <button onclick="triggerSOS()" class="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center space-x-2 shadow-lg shadow-red-950/50">
+                    <i class="fa-solid fa-triangle-exclamation animate-ping"></i>
+                    <span>EMERGENCY SOS (NOTIFY FAMILY)</span>
+                </button>
+            </div>
+
+            <div class="bg-slate-900 border-t border-slate-800 flex justify-around items-center py-2.5 fixed md:absolute bottom-0 left-0 right-0 z-40">
+                <button onclick="switchTab('home')" id="tabHome" class="flex flex-col items-center text-emerald-400">
+                    <i class="fa-solid fa-house text-base"></i>
+                    <span class="text-[10px] mt-0.5">Home</span>
+                </button>
+                <button onclick="switchTab('route')" id="tabRoute" class="flex flex-col items-center text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-map-location-dot text-base"></i>
+                    <span class="text-[10px] mt-0.5">Route</span>
+                </button>
+                <button onclick="switchTab('reports')" id="tabReports" class="flex flex-col items-center text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-bullhorn text-base"></i>
+                    <span class="text-[10px] mt-0.5">Reports</span>
+                </button>
+                <button onclick="switchTab('schedule')" id="tabSchedule" class="flex flex-col items-center text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-calendar-days text-base"></i>
+                    <span class="text-[10px] mt-0.5">Schedule</span>
+                </button>
+                <button onclick="switchTab('emergency')" id="tabEmergency" class="flex flex-col items-center text-slate-400 hover:text-slate-200">
+                    <i class="fa-solid fa-shield-cat text-base"></i>
+                    <span class="text-[10px] mt-0.5">Emergency</span>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    <div id="addScheduleModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 w-full max-w-sm space-y-3">
+            <h3 class="text-sm font-bold text-white"><i class="fa-solid fa-calendar-plus text-emerald-400 mr-1.5"></i>Add Custom Class</h3>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Subject / Course Name</label>
+                <input type="text" id="schedSubject" placeholder="e.g. Computer Science 101" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Time & Room Location</label>
+                <input type="text" id="schedTime" placeholder="e.g. 1:00 PM - Room 302" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+            </div>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Weather Reminder Badge</label>
+                <input type="text" id="schedNote" placeholder="e.g. Bring Umbrella" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2 text-xs text-white focus:outline-none focus:border-emerald-500">
+            </div>
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeAddScheduleModal()" class="flex-1 bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-semibold">Cancel</button>
+                <button onclick="saveCustomSchedule()" class="flex-1 bg-emerald-600 text-white py-2 rounded-xl text-xs font-semibold">Add Class</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="reportModal" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 w-full max-w-sm space-y-4">
+            <h3 class="text-sm font-bold text-white">Report Hazard Condition</h3>
+            <div>
+                <label class="block text-xs text-slate-400 mb-1">Select Condition</label>
+                <select id="modalCondition" class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white">
+                    <option value="Flood near main gate">Flood near main gate</option>
+                    <option value="Walkway slippery">Walkway slippery</option>
+                    <option value="Heavy rain at quadrangle">Heavy rain at quadrangle</option>
+                    <option value="Fallen tree branch">Fallen tree branch</option>
+                </select>
+            </div>
+            <div class="flex space-x-2 pt-2">
+                <button onclick="closeReportModal()" class="flex-1 bg-slate-700 text-slate-300 py-2 rounded-xl text-xs font-semibold">Cancel</button>
+                <button onclick="submitReport()" class="flex-1 bg-emerald-600 text-white py-2 rounded-xl text-xs font-semibold">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let mapInstance = null;
+        let authMode = 'signin';
+        let dbRef = null;
+
+        let reportsData = [
+            { id: "1", text: "Flood near main gate", time: "9:20 AM", confirmed: 5 },
+            { id: "2", text: "Walkway slippery", time: "9:35 AM", confirmed: 3 }
+        ];
+
+        let classSchedules = [
+            { id: 1, subject: "Mathematics", time: "9:00 AM - Room 204", note: "Bring Umbrella" },
+            { id: 2, subject: "Biology Lab", time: "11:15 AM - Science Bldg", note: "Normal" }
+        ];
+
+        function toggleAuthMode(mode) {
+            authMode = mode;
+            const nameField = document.getElementById('nameField');
+            const submitBtn = document.getElementById('authSubmitBtn');
+            const tabSignIn = document.getElementById('tabSignInBtn');
+            const tabSignUp = document.getElementById('tabSignUpBtn');
+
+            if(mode === 'signup') {
+                nameField.classList.remove('hidden');
+                submitBtn.innerText = 'Create Account';
+                tabSignUp.className = "flex-1 pb-3 text-center text-sm font-semibold border-b-2 border-emerald-500 text-emerald-400";
+                tabSignIn.className = "flex-1 pb-3 text-center text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200";
+            } else {
+                nameField.classList.add('hidden');
+                submitBtn.innerText = 'Sign In';
+                tabSignIn.className = "flex-1 pb-3 text-center text-sm font-semibold border-b-2 border-emerald-500 text-emerald-400";
+                tabSignUp.className = "flex-1 pb-3 text-center text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-slate-200";
+            }
+        }
+
+        function handleAuthSubmit(e) {
+            e.preventDefault();
+            const username = document.getElementById('authUsername').value || 'Student';
+            localStorage.setItem('campus_user', username);
+            document.getElementById('welcomeUser').innerText = `Hi, @${username}`;
+            
+            document.getElementById('authScreen').classList.add('hidden');
+            document.getElementById('mainAppWrapper').classList.remove('hidden');
+            document.getElementById('mainAppWrapper').classList.add('flex');
+
+            initMap();
+            renderReports();
+            renderSchedules();
+            loadEmergencyContacts();
+            requestNotificationPermission();
+            fetchLiveWeather();
+        }
+
+        function handleLogOut() {
+            localStorage.removeItem('campus_user');
+            document.getElementById('mainAppWrapper').classList.add('hidden');
+            document.getElementById('mainAppWrapper').classList.remove('flex');
+            document.getElementById('authScreen').classList.remove('hidden');
+        }
+
+        function startRealtimeClock() {
+            function updateClock() {
+                const now = new Date();
+                const timeStr = now.toLocaleTimeString('en-US', { hour12: true, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                document.getElementById('realtimeClock').innerText = timeStr;
+            }
+            updateClock();
+            setInterval(updateClock, 1000);
+        }
+
+        function getWeatherIcon(code) {
+            if (code <= 3) return "fa-cloud-sun text-amber-400";
+            if (code >= 51 && code <= 67) return "fa-cloud-rain text-blue-400";
+            if (code >= 80) return "fa-cloud-showers-heavy text-blue-400";
+            return "fa-sun text-amber-400";
+        }
+
+        async function fetchLiveWeather() {
+            try {
+                const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=14.5736&longitude=120.9891&current_weather=true&hourly=temperature_2m,relativehumidity_2m,weathercode&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Asia%2FManila');
+                const data = await res.json();
+                
+                if (data && data.current_weather) {
+                    const temp = Math.round(data.current_weather.temperature);
+                    document.getElementById('liveTemp').innerText = `${temp}°C`;
+                    
+                    if (data.hourly && data.hourly.relativehumidity_2m) {
+                        document.getElementById('humidityVal').innerText = `${data.hourly.relativehumidity_2m[0]}%`;
+                    }
+
+                    const code = data.current_weather.weathercode;
+                    let desc = "Clear / Fair";
+                    if(code > 0 && code <= 3) desc = "Partly Cloudy";
+                    else if(code >= 51 && code <= 67) desc = "Light Rain Showers";
+                    else if(code >= 80) desc = "Heavy Rain Warning";
+                    
+                    document.getElementById('weatherDesc').innerText = desc;
+                    document.getElementById('lastUpdated').innerText = `Updated: ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`;
+                    document.getElementById('offlineBadge').classList.add('hidden');
+
+                    if (data.hourly && data.hourly.temperature_2m) {
+                        const hContainer = document.getElementById('hourlyContainer');
+                        const times = ["NOW", "+1hr", "+2hr", "+3hr"];
+                        hContainer.innerHTML = times.map((t, idx) => {
+                            const hTemp = Math.round(data.hourly.temperature_2m[idx * 2] || temp);
+                            const hCode = data.hourly.weathercode[idx * 2] || code;
+                            return `
+                                <div class="space-y-1">
+                                    <p class="text-slate-400">${t}</p>
+                                    <i class="fa-solid ${getWeatherIcon(hCode)} text-lg"></i>
+                                    <p class="font-bold">${hTemp}°</p>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+
+                    if (data.daily && data.daily.time) {
+                        const wContainer = document.getElementById('weeklyContainer');
+                        const days = ["Today", "Tue", "Wed", "Thu", "Fri"];
+                        wContainer.innerHTML = days.map((d, idx) => {
+                            const max = Math.round(data.daily.temperature_2m_max[idx] || 32);
+                            const min = Math.round(data.daily.temperature_2m_min[idx] || 25);
+                            const dCode = data.daily.weathercode[idx] || 0;
+                            return `
+                                <div class="flex justify-between items-center text-xs py-1 border-b border-slate-700/50">
+                                    <span class="w-16">${d}</span>
+                                    <i class="fa-solid ${getWeatherIcon(dCode)}"></i>
+                                    <span class="text-slate-400">${dCode > 50 ? 'Rain Expected' : 'Fair Weather'}</span>
+                                    <span class="font-bold">${min}° / ${max}°</span>
+                                </div>
+                            `;
+                        }).join('');
+                    }
+                }
+            } catch (err) {
+                console.log('Using offline weather backup');
+                document.getElementById('offlineBadge').classList.remove('hidden');
+                document.getElementById('liveTemp').innerText = '28°C';
+                document.getElementById('weatherDesc').innerText = 'Offline Mode (Cached)';
+            }
+        }
+
+        function switchTab(tab) {
+            ['Home', 'Route', 'Reports', 'Schedule', 'Emergency'].forEach(t => {
+                document.getElementById(`panel${t}`).classList.add('hidden');
+                document.getElementById(`tab${t}`).className = "flex flex-col items-center text-slate-400 hover:text-slate-200";
+            });
+
+            document.getElementById(`panel${capitalize(tab)}`).classList.remove('hidden');
+            document.getElementById(`tab${capitalize(tab)}`).className = "flex flex-col items-center text-emerald-400";
+
+            if (tab === 'route' && mapInstance) {
+                setTimeout(() => mapInstance.invalidateSize(), 200);
+            }
+        }
+
+        function capitalize(str) {
+            return str.charAt(0).toUpperCase() + str.slice(1);
+        }
+
+        function initMap() {
+            if (mapInstance) return;
+            mapInstance = L.map('map').setView([14.5736, 120.9891], 15);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(mapInstance);
+
+            L.marker([14.5736, 120.9891]).addTo(mapInstance)
+                .bindPopup("<b>JRCC Campus</b><br>Safe Zone")
+                .openPopup();
+
+            L.circle([14.5710, 120.9870], {
+                color: 'red',
+                fillColor: '#f03',
+                fillOpacity: 0.5,
+                radius: 120
+            }).addTo(mapInstance).bindPopup("Flooded Area: Main Gate");
+        }
+
+        function renderSchedules() {
+            const saved = localStorage.getItem('user_class_schedules');
+            if (saved) {
+                try { classSchedules = JSON.parse(saved); } catch(e){}
+            }
+
+            const list = document.getElementById('scheduleList');
+            list.innerHTML = classSchedules.map(s => `
+                <div class="bg-slate-900/60 p-3 rounded-xl flex justify-between items-center border border-slate-700">
+                    <div>
+                        <p class="font-bold text-white">${s.subject}</p>
+                        <p class="text-[10px] text-slate-400">${s.time}</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span class="${s.note.toLowerCase().includes('umbrella') ? 'bg-emerald-900/50 text-emerald-300' : 'bg-slate-800 text-slate-300'} text-[10px] px-2 py-1 rounded">${s.note}</span>
+                        <button onclick="deleteSchedule(${s.id})" class="text-slate-500 hover:text-red-400 text-xs px-1">
+                            <i class="fa-solid fa-xmark"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function openAddScheduleModal() { document.getElementById('addScheduleModal').classList.remove('hidden'); }
+        function closeAddScheduleModal() { document.getElementById('addScheduleModal').classList.add('hidden'); }
+
+        function saveCustomSchedule() {
+            const subj = document.getElementById('schedSubject').value;
+            const time = document.getElementById('schedTime').value;
+            const note = document.getElementById('schedNote').value || 'Normal';
+
+            if (!subj || !time) {
+                alert('Please fill in both the Subject Name and Time/Room.');
+                return;
+            }
+
+            classSchedules.push({ id: Date.now(), subject: subj, time: time, note: note });
+            localStorage.setItem('user_class_schedules', JSON.stringify(classSchedules));
+
+            renderSchedules();
+            closeAddScheduleModal();
+
+            document.getElementById('schedSubject').value = '';
+            document.getElementById('schedTime').value = '';
+            document.getElementById('schedNote').value = '';
+        }
+
+        function deleteSchedule(id) {
+            classSchedules = classSchedules.filter(s => s.id !== id);
+            localStorage.setItem('user_class_schedules', JSON.stringify(classSchedules));
+            renderSchedules();
+        }
+
+        function saveEmergencyContacts() {
+            const parent = document.getElementById('parentPhone').value;
+            const relative = document.getElementById('relativePhone').value;
+            
+            localStorage.setItem('emergency_parent_phone', parent);
+            localStorage.setItem('emergency_relative_phone', relative);
+            
+            alert('Emergency contacts saved!');
+        }
+
+        function loadEmergencyContacts() {
+            const parent = localStorage.getItem('emergency_parent_phone');
+            const relative = localStorage.getItem('emergency_relative_phone');
+            
+            if (parent) document.getElementById('parentPhone').value = parent;
+            if (relative) document.getElementById('relativePhone').value = relative;
+        }
+
+        function triggerSOS() {
+            const parent = localStorage.getItem('emergency_parent_phone') || document.getElementById('parentPhone').value;
+            const relative = localStorage.getItem('emergency_relative_phone') || document.getElementById('relativePhone').value;
+            const username = localStorage.getItem('campus_user') || 'Student';
+
+            const recipients = [parent, relative].filter(Boolean).join(',');
+            const message = encodeURIComponent(`EMERGENCY SOS: Student @${username} is stranded due to flooding near JRCC Campus (Coordinates: 14.5736, 120.9891). Please check on me!`);
+
+            if (recipients) {
+                window.location.href = `sms:${recipients}?body=${message}`;
+            } else {
+                alert("EMERGENCY SOS TRIGGERED!\nPlease configure family phone numbers in the 'Emergency' tab to enable automated SMS alerts.");
+            }
+        }
+
+        function shareStatusToParent() {
+            const parent = localStorage.getItem('emergency_parent_phone') || document.getElementById('parentPhone').value;
+            const username = localStorage.getItem('campus_user') || 'Student';
+            const message = encodeURIComponent(`Hi! I am safe at JRCC campus. Leaving school at 3:30 PM. - ${username}`);
+
+            if (parent) {
+                window.location.href = `sms:${parent}?body=${message}`;
+            } else {
+                alert("Please save a parent phone number in the 'Emergency' tab first.");
+            }
+        }
+
+        function requestNotificationPermission() {
+            if ("Notification" in window && Notification.permission !== "granted") {
+                Notification.requestPermission();
+            }
+        }
+
+        function sendPushNotification(title, body) {
+            if ("Notification" in window && Notification.permission === "granted") {
+                new Notification(title, { body: body, icon: 'https://cdn-icons-png.flaticon.com/512/1163/1163657.png' });
+            } else {
+                alert(`${title}: ${body}`);
+            }
+        }
+
+        function renderReports() {
+            const list = document.getElementById('reportsList');
+            list.innerHTML = reportsData.map(r => `
+                <div class="bg-slate-800 border border-slate-700 rounded-xl p-3 flex justify-between items-center text-xs">
+                    <div>
+                        <p class="font-bold text-slate-200">${r.text}</p>
+                        <p class="text-[10px] text-slate-400">Reported at ${r.time} • <span class="text-emerald-400 font-bold">${r.confirmed || 1} Confirmations</span></p>
+                    </div>
+                    <button onclick="confirmReport('${r.id}')" class="bg-slate-700 hover:bg-emerald-800/50 text-emerald-300 px-2.5 py-1 rounded-lg transition active:scale-95">
+                        <i class="fa-solid fa-thumbs-up mr-1"></i>Confirm
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function openReportModal() { document.getElementById('reportModal').classList.remove('hidden'); }
+        function closeReportModal() { document.getElementById('reportModal').classList.add('hidden'); }
+
+        function submitReport() {
+            const val = document.getElementById('modalCondition').value;
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const newReport = { id: Date.now().toString(), text: val, time: timeStr, confirmed: 1 };
+
+            reportsData.unshift(newReport);
+            renderReports();
+
+            if (dbRef) {
+                try {
+                    dbRef.push(newReport);
+                } catch(e) {}
+            }
+            closeReportModal();
+        }
+
+        function confirmReport(id) {
+            const item = reportsData.find(r => r.id.toString() === id.toString());
+            if (item) {
+                item.confirmed = (parseInt(item.confirmed) || 0) + 1;
+                renderReports();
+            }
+
+            if (dbRef) {
+                try {
+                    dbRef.child(id).child('confirmed').transaction(currentCount => (currentCount || 0) + 1);
+                } catch(e) {
+                    console.log('Firebase sync fallback');
+                }
+            }
+        }
+        window.onload = function() {
+            startRealtimeClock();
+            
+            const existingUser = localStorage.getItem('campus_user');
+            if(existingUser) {
+                document.getElementById('authUsername').value = existingUser;
+            }
+        };
+    </script>
+</body>
+</html>
